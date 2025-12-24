@@ -68,6 +68,22 @@ python scripts/enjoy_models.py --algo ppo --directional
 ```
 *Note: Interactive keyboard control (W/A/S/D) during evaluation depends on the local rendering environment setup. The script currently defaults to "Forward" but can be easily extended for full interactivity.*
 
+## Future Research & Scaling
+Inspired by the state-of-the-art paper *"Learning to Walk in Minutes Using Massively Parallel Deep Reinforcement Learning"* ([Arxiv](https://arxiv.org/abs/2109.11978)), here are suggestions for taking this project to the next level:
+
+1.  **Massive Parallelism (GPU Simulation)**
+    *   **Current**: We use 8 parallel CPU environments.
+    *   **Goal**: Scale to **4,000+ environments**.
+    *   **How**: Migrate to **MuJoCo MJX** (JAX-based) or **Gym-Isaac** (NVIDIA). This allows the entire simulation to run on the GPU, eliminating CPU bottlenecks and enabling training in minutes rather than hours.
+
+2.  **Curriculum Learning**
+    *   **Idea**: Instead of training on the final task immediately, progressively increase difficulty.
+    *   **Implementation**: Start with flat ground and easy directional goals. Slowly introduce rougher terrain (via height-fields) and faster goal changing frequencies as the agent improves.
+
+3.  **Asymmetric Actor-Critic**
+    *   **Idea**: Give the "Critic" (Teacher) more information than the "Actor" (Student).
+    *   **Implementation**: The Critic sees exact friction coefficients, terrain height-maps, and robot mass. The Actor only sees noisy sensor data (joint angles, IMU). This creates a robust policy that can adapt to the real world without "cheating".
+
 ## Navigation
 - `setup.sh`: Bash script to automate virtual environment and dependency setup.
 - `scripts/basic_sim.py`: Basic simulation script with random actions.

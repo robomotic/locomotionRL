@@ -34,15 +34,33 @@ To significantly speed up training from your local machine, you should focus on 
 If AWS feels too complex or expensive, many RL researchers use "AI-First" clouds. They are often significantly cheaper and come with pre-installed drivers.
 
 ### Lambda Labs (Highly Recommended)
-- **Top Choice**: Best for "1-click" GPU Ubuntu instances.
-- **Pricing**: Often 50-70% cheaper than AWS on-demand (e.g., A10s around $0.60/hr, A100s around $1.29/hr).
-- **Lambda Stack**: Comes with PyTorch, CUDA, and Drivers pre-installed and verified.
-- **Simplicity**: No complex VPCs or IAM roles. Just launch and SSH.
+- **Top Choice**: Best for "1-click" GPU Ubuntu instances with zero configuration.
+- **Why Lambda?**: Often 50-70% cheaper than AWS on-demand. Their "Lambda Stack" ensures PyTorch and CUDA are perfectly matched and pre-installed.
+- **Workflow Strategy**:
+  1. **Launch**: Select an **A10 (24GB VRAM)** for balance or **A100 (40GB/80GB)** for heavy recurrent training.
+  2. **Persistence**: 
+     - **CRITICAL**: Use **Cloud Storage** (attached at `/home/ubuntu/storage`). Standard instance disks are ephemeral and data is lost on termination.
+     - Save your `.pth` checkpoints and `tensorboard` logs to the persistent mount.
+  3. **Connectivity**: 
+     - Add your SSH key to the console.
+     - Connect via terminal: `ssh ubuntu@<INSTANCE_IP>`.
+     - Supports **JupyterLab** directly from the dashboard if you prefer notebooks.
+  4. **Management**: Termination is the only way to stop billing; ensure all checkpoints are synced to persistent storage before hitting "Terminate".
+- **Simplicity**: No complex VPCs, Security Groups, or IAM roles. Just launch and go.
 
-### RunPod
-- **What to use**: Community or Secure Cloud.
-- **Pros**: Even cheaper than Lambda; supports "Pods" (Docker containers) which are great for reproducible RL environments.
-- **Hibernation**: You can stop a pod but keep the disk, which is cheaper than keeping the GPU.
+### RunPod (Community Cloud)
+- **Why RunPod?**: Often the cheapest option for high-end consumer GPUs (RTX 4090, 3090) which are excellent for single-agent RL training.
+- **Workflow Strategy**:
+  1. **Select Pod**: Go to "Community Cloud" for best rates. Look for **RTX 4090** (great for rapid prototyping) or **A6000/A40** (larger VRAM).
+  2. **Template**: Use the official **RunPod PyTorch 2.1** template. It comes with CUDA, drivers, and Docker pre-configured.
+  3. **Setup**:
+     - **Volume**: Allocate at least **20GB** of network storage to persist your dataset and model checkpoints.
+     - **Ports**: Ensure SSH (22) and TCP (for TensorBoard) are open.
+  4. **Development**:
+     - Connect via **VS Code Remote - SSH** for a local-like experience.
+     - Run `git clone` to fetch this repository.
+     - Install dependencies: `pip install -r requirements.txt`.
+  5. **Cost Saving**: Use the "Stop" feature to release the GPU when analyzing results, paying only for storage (~$0.10/GB/month).
 
 ---
 
