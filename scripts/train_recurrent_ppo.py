@@ -16,34 +16,33 @@ def make_env(env_id, directional=False):
         return wrap_env(env_id)
     return _init
 
-def train(directional=False, n_envs=8):
+def train(env_id="Ant-v5", directional=False, n_envs=8):
     # Create environment
-    env_id = "Ant-v5"
-    
     from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
     env = SubprocVecEnv([make_env(env_id, directional) for _ in range(n_envs)])
     env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.)
     
+    env_name_clean = env_id.replace("-v5", "").lower()
     log_suffix = "_dir" if directional else ""
     # Directory to save logs and models
-    log_dir = f"./logs/rec_ppo_ant{log_suffix}/"
-    model_dir = f"./models/rec_ppo_ant{log_suffix}/"
+    log_dir = f"./logs/rec_ppo_{env_name_clean}{log_suffix}/"
+    model_dir = f"./models/rec_ppo_{env_name_clean}{log_suffix}/"
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
 
     # Path for the latest model
-    model_name = "rec_ppo_ant_dir" if directional else "rec_ppo_ant"
+    model_name = f"rec_ppo_{env_name_clean}{log_suffix}"
     latest_model_path = os.path.join(model_dir, f"{model_name}_final.zip")
     stats_path = os.path.join(model_dir, f"{model_name}_stats.pkl")
 
     if os.path.exists(latest_model_path):
-        print(f"Loading existing model from {latest_model_path}...")
+        print(f"Loading existing model {latest_model_path}...")
         model = RecurrentPPO.load(latest_model_path, env=env, tensorboard_log=log_dir)
         if os.path.exists(stats_path):
             env = VecNormalize.load(stats_path, env)
         reset_num_timesteps = False
     else:
-        print("Starting training from scratch...")
+        print(f"Starting training {env_id} from scratch...")
         model = RecurrentPPO(
             "MlpLstmPolicy",
             env,
@@ -67,7 +66,7 @@ def train(directional=False, n_envs=8):
     checkpoint_callback = CheckpointCallback(
         save_freq=10000,
         save_path=model_dir,
-        name_prefix="rec_ppo_ant_model"
+        name_prefix=f"rec_ppo_{env_name_clean}_model"
     )
     
     metrics_callback = LocomotionMetricsCallback(log_dir=log_dir)
@@ -92,6 +91,7 @@ def train(directional=False, n_envs=8):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--env", type=str, default="Ant-v5", help="Gymnasium environment ID")
     parser.add_argument("--directional", action="store_true", help="Train for WASD-style directional control")
     args = parser.parse_args()
-    train(directional=args.directional)
+    train(env_id=args.env, directional=args.directional)

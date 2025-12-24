@@ -14,45 +14,44 @@ def make_env(env_id, directional=False):
         return gym.make(env_id)
     return _init
 
-def train(directional=False, n_envs=8):
-    # Create environment
-    env_id = "Ant-v5"
-    
+def train(env_id="Ant-v5", directional=False, n_envs=8):
     # Use vectorized environments
     env = SubprocVecEnv([make_env(env_id, directional) for _ in range(n_envs)])
     
     # Add normalization
     env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.)
     
+    env_name_clean = env_id.replace("-v5", "").lower()
     log_suffix = "_dir" if directional else ""
 
     # Directory to save logs and models
-    log_dir = f"./logs/ppo_ant{log_suffix}/"
-    model_dir = f"./models/ppo_ant{log_suffix}/"
+    log_dir = f"./logs/ppo_{env_name_clean}{log_suffix}/"
+    model_dir = f"./models/ppo_{env_name_clean}{log_suffix}/"
     os.makedirs(log_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
 
     # Path for the latest model
-    model_name = "ppo_ant_dir" if directional else "ppo_ant"
+    model_name = f"ppo_{env_name_clean}{log_suffix}"
     latest_model_path = os.path.join(model_dir, f"{model_name}_final.zip")
     
+    # ... (rest of the logic remains the same)
     # Check for checkpoints if final model doesn't exist
     if not os.path.exists(latest_model_path):
-        checkpoints = glob.glob(os.path.join(model_dir, f"{model_name}_model_*.zip"))
+        checkpoints = glob.glob(os.path.join(model_dir, f"ppo_*_model_*.zip"))
         if checkpoints:
             latest_model_path = max(checkpoints, key=os.path.getctime)
 
     stats_path = os.path.join(model_dir, f"{model_name}_stats.pkl")
 
     if os.path.exists(latest_model_path):
-        print(f"Loading existing model from {latest_model_path}...")
+        print(f"Loading existing model {latest_model_path}...")
         model = PPO.load(latest_model_path, env=env, tensorboard_log=log_dir)
         if os.path.exists(stats_path):
             print(f"Loading normalization stats from {stats_path}...")
             env = VecNormalize.load(stats_path, env)
         reset_num_timesteps = False
     else:
-        print("Starting training from scratch...")
+        print(f"Starting training {env_id} from scratch...")
         model = PPO(
             "MlpPolicy",
             env,
@@ -60,12 +59,12 @@ def train(directional=False, n_envs=8):
             tensorboard_log=log_dir,
             learning_rate=3e-4,
             n_steps=2048,
-            batch_size=256, # Increased from 64 for more stable gradients
+            batch_size=256,
             n_epochs=10,
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
-            ent_coef=0.01, # Increased from 0.0 to prevent premature local optima
+            ent_coef=0.01,
         )
         reset_num_timesteps = True
 
@@ -76,7 +75,7 @@ def train(directional=False, n_envs=8):
     checkpoint_callback = CheckpointCallback(
         save_freq=10000,
         save_path=model_dir,
-        name_prefix="ppo_ant_model"
+        name_prefix=f"ppo_{env_name_clean}_model"
     )
     
     metrics_callback = LocomotionMetricsCallback(log_dir=log_dir)
@@ -101,6 +100,7 @@ def train(directional=False, n_envs=8):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--env", type=str, default="Ant-v5", help="Gymnasium environment ID (e.g., Hopper-v5, Walker2d-v5)")
     parser.add_argument("--directional", action="store_true", help="Train for WASD-style directional control")
     args = parser.parse_args()
-    train(directional=args.directional)
+    train(env_id=args.env, directional=args.directional)
