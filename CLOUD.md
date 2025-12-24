@@ -62,6 +62,20 @@ If AWS feels too complex or expensive, many RL researchers use "AI-First" clouds
      - Install dependencies: `pip install -r requirements.txt`.
   5. **Cost Saving**: Use the "Stop" feature to release the GPU when analyzing results, paying only for storage (~$0.10/GB/month).
 
+### Vast.ai (GPU Marketplace)
+- **Why Vast.ai?**: The absolute lowest prices (often 1/4 the cost of AWS) because it's a marketplace of individual hosts.
+- **Key Concepts**:
+  - **Verified vs. Unverified**: Stick to "Verified" machines for better reliability and uptime.
+  - **On-Demand vs. Interruptible (Bid)**: 
+    - **On-Demand**: Guaranteed resources.
+    - **Interruptible**: Much cheaper, but your pod can be "killed" if someone bids higher. Use this only if you have **checkpointing** (Pause & Recover) enabled.
+- **Workflow Strategy**:
+  1. **Select Instance**: Filter by GPU (e.g., RTX 4090). Check the "DLPerf" score to compare performance across hosts.
+  2. **Template**: Use the **PyTorch** or **Cuda** recommended templates. Ensure SSH is selected.
+  3. **Storage**: Allocate enough disk space during setup (cannot be easily expanded later).
+  4. **Connectivity**: Standard SSH setup via the `vastai` CLI or dashboard. Note that IP/ports change with every new rental.
+  5. **Data Management**: Sync checkpoints frequently to a remote bucket (S3/GCS) as hosts are independent.
+
 ---
 
 ## 4. Technical Speed-up Strategies
