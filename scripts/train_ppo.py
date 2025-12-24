@@ -60,28 +60,34 @@ def train(directional=False, n_envs=8):
             tensorboard_log=log_dir,
             learning_rate=3e-4,
             n_steps=2048,
-            batch_size=64,
+            batch_size=256, # Increased from 64 for more stable gradients
             n_epochs=10,
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
-            ent_coef=0.0,
+            ent_coef=0.01, # Increased from 0.0 to prevent premature local optima
         )
         reset_num_timesteps = True
 
-    # Setup checkpoint callback
+    # Setup callbacks
+    from stable_baselines3.common.callbacks import CallbackList
+    from utils.callbacks import LocomotionMetricsCallback
+    
     checkpoint_callback = CheckpointCallback(
         save_freq=10000,
         save_path=model_dir,
         name_prefix="ppo_ant_model"
     )
+    
+    metrics_callback = LocomotionMetricsCallback(log_dir=log_dir)
+    callback = CallbackList([checkpoint_callback, metrics_callback])
 
     # Start training
     print(f"Starting training on {env_id}...")
     total_timesteps = 1000000 
     model.learn(
         total_timesteps=total_timesteps,
-        callback=checkpoint_callback,
+        callback=callback,
         progress_bar=True,
         reset_num_timesteps=reset_num_timesteps
     )

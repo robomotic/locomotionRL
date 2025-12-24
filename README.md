@@ -61,12 +61,21 @@ python scripts/train_ppo.py --directional
 ```
 This adds a 2D goal vector to the observation space and modifies the reward to encourage following that goal. During training, the goal changes randomly every 200 steps to force the agent to learn all directions.
 
-### Evaluation
-To evaluate a directional model:
+### Evaluation & Keyboard Control
+To evaluate a directional model with interactive steering:
 ```bash
-python scripts/enjoy_models.py --algo ppo --directional
+python scripts/enjoy_models.py --algo ppo --directional --sleep 0.05
 ```
-*Note: Interactive keyboard control (W/A/S/D) during evaluation depends on the local rendering environment setup. The script currently defaults to "Forward" but can be easily extended for full interactivity.*
+- **W/A/S/D**: Steer the Ant in real-time.
+- **M**: Toggle between **Manual** control (Green Arrow) and **Random** goals (Red Arrow).
+- **--sleep**: Adjust the frame rate/simulation speed.
+
+### Analytical Metrics
+To get a detailed report on how straight the robot walks and its flip rate:
+```bash
+python scripts/evaluate_metrics.py --algo ppo --directional --episodes 50
+```
+This script calculates **Straight Line Score** (Directional Efficiency), **Flip/Failure Rate**, and **Survival Probability**.
 
 ## Future Research & Scaling
 Inspired by the state-of-the-art paper *"Learning to Walk in Minutes Using Massively Parallel Deep Reinforcement Learning"* ([Arxiv](https://arxiv.org/abs/2109.11978)), here are suggestions for taking this project to the next level:
@@ -90,8 +99,11 @@ Inspired by the state-of-the-art paper *"Learning to Walk in Minutes Using Massi
 - `scripts/train_ppo.py`: PPO training script for the Ant-v5 environment.
 - `scripts/train_sac.py`: SAC training script with Domain Randomization.
 - `scripts/train_recurrent_ppo.py`: Recurrent PPO (LSTM) training script with Domain Randomization.
-- `scripts/enjoy_models.py`: Universal evaluation script for PPO, SAC, and RecurrentPPO.
+- `scripts/enjoy_models.py`: Universal evaluation script with **interactive 3D arrow guidance and WASD control**.
+- `scripts/evaluate_metrics.py`: Headless evaluation script for calculating **straight-line efficiency and stability metrics**.
 - `scripts/record_video.py`: Script to record agent performance to a video file.
+- `scripts/utils/directional_control.py`: Wrapper for directional training with **Cross-Track Error (CTE)** and **Heading Alignment** rewards.
 - `scripts/utils/domain_randomization.py`: Gymnasium wrapper for MuJoCo domain randomization.
 - `models/simple_biped.xml`: Educational MJCF model of a bipedal robot.
-- `CLOUD.md`: Comprehensive report on scaling training using AWS and GPUs.
+- `CLOUD.md`: Comprehensive report on scaling training using AWS, Lambda Labs, RunPod, and Vast.ai.
+- `ANIMATION_TRANSFER.md`: Guide for exporting motions to Unity and Godot (FBX/ONNX).
