@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+.venv/
+ENV/
+
+# Project Specific
+logs/
+videos/
+*.zip
+
+# Ignore trained models but keep MJCF XMLs
+models/ppo_ant/
+models/sac_ant/
+models/rec_ppo_ant/
+models/ppo_ant_dir/
+models/sac_ant_dir/
+models/rec_ppo_ant_dir/
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store
