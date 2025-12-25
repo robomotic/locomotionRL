@@ -7,7 +7,7 @@ import time
 import os
 import argparse
 
-def enjoy(algo, model_path, directional=False, sleep_time=0.01):
+def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01):
     if not os.path.exists(model_path):
         print(f"Model not found at {model_path}")
         return
@@ -18,8 +18,8 @@ def enjoy(algo, model_path, directional=False, sleep_time=0.01):
         render_mode = "human" if not directional else None
         if directional:
             from utils.directional_control import wrap_directional
-            return wrap_directional("Ant-v5", render_mode=render_mode)
-        return gym.make("Ant-v5", render_mode=render_mode)
+            return wrap_directional(env_id, render_mode=render_mode)
+        return gym.make(env_id, render_mode=render_mode)
 
     # Create environment for evaluation
     env = DummyVecEnv([make_env])
@@ -44,9 +44,9 @@ def enjoy(algo, model_path, directional=False, sleep_time=0.01):
         return
 
     obs = env.reset()
-    print(f"Starting evaluation of {algo} model. Press Ctrl+C to stop.")
+    print(f"Starting evaluation of {algo} model on {env_id}. Press Ctrl+C to stop.")
     if directional:
-        print("MAPPING: W: Forward, S: Back, A: Left, D: Right")
+        print("CONTROLS: Use ARROW KEYS to steer the robot. Press 'M' to toggle Manual/Random mode.")
     
     # For recurrent models
     lstm_states = None
@@ -63,19 +63,34 @@ def enjoy(algo, model_path, directional=False, sleep_time=0.01):
         # Access the base MuJoCo environment through the wrappers
         base_env = env.unwrapped.envs[0].unwrapped
         
-        # Key callback for steering
+        # Key callback for steering (Arrows to avoid MuJoCo conflicts)
+        is_2d_robot = "Ant" not in env_id
         def key_callback(keycode):
             nonlocal cmd_goal, manual_mode
-            # MuJoCo keycodes are ASCII or special constants
-            if chr(keycode) == 'W': cmd_goal = np.array([1.0, 0.0])
-            elif chr(keycode) == 'S': cmd_goal = np.array([-1.0, 0.0])
-            elif chr(keycode) == 'A': cmd_goal = np.array([0.0, 1.0])
-            elif chr(keycode) == 'D': cmd_goal = np.array([0.0, -1.0])
-            elif chr(keycode) == 'M': 
+            # GLFW Keycodes for Arrows
+            # UP: 265, DOWN: 264, LEFT: 263, RIGHT: 262
+            if is_2d_robot:
+                if keycode in [265, 262, ord('W'), ord('D')]: # Up/Right
+                    cmd_goal = np.array([1.0, 0.0])
+                elif keycode in [264, 263, ord('S'), ord('A')]: # Down/Left
+                    cmd_goal = np.array([-1.0, 0.0])
+            else:
+                if keycode == 265 or keycode == ord('W'): # Forward
+                    cmd_goal = np.array([1.0, 0.0])
+                elif keycode == 264 or keycode == ord('S'): # Backward
+                    cmd_goal = np.array([-1.0, 0.0])
+                elif keycode == 263 or keycode == ord('A'): # Left
+                    cmd_goal = np.array([0.0, 1.0])
+                elif keycode == 262 or keycode == ord('D'): # Right
+                    cmd_goal = np.array([0.0, -1.0])
+            
+            if 32 <= keycode <= 126 and chr(keycode) == 'M': 
                 manual_mode = not manual_mode
                 print(f"\nMode switched to: {'MANUAL' if manual_mode else 'RANDOM'}")
 
         viewer = mujoco.viewer.launch_passive(base_env.model, base_env.data, key_callback=key_callback)
+        # Zoom out for better visibility
+        viewer.cam.distance = 5.0
 
     try:
         while True:
@@ -100,19 +115,23 @@ def enjoy(algo, model_path, directional=False, sleep_time=0.01):
                 base_env = directional_wrapper.unwrapped
                 goal = directional_wrapper.current_goal
                 
-                # Center the arrow on the ant (root body position)
-                ant_pos = base_env.data.qpos[:3]
+                # 1. Camera Follow: Update lookat to torso position
+                # data.xpos[1] is the global 3D position of the root body
+                viewer.cam.lookat[:] = base_env.data.xpos[1]
+
+                # 2. Center the arrow on the robot
+                robot_pos = base_env.data.xpos[1]
                 
                 # Add a marker (arrow) to the scene
                 viewer.user_scn.ngeom = 0
                 import mujoco
-                # Arrow points from ant_pos in direction of goal
+                # Arrow points from robot_pos in direction of goal
                 mujoco.mjv_initGeom(
                     viewer.user_scn.geoms[0],
                     type=mujoco.mjtGeom.mjGEOM_ARROW,
                     size=np.array([0.05, 0.05, 0.4], dtype=np.float64),
                     rgba=np.array([0, 1, 0, 1], dtype=np.float32) if manual_mode else np.array([1, 0, 0, 1], dtype=np.float32), 
-                    pos=(ant_pos + [0, 0, 0.5]).astype(np.float64), 
+                    pos=(robot_pos + [0, 0, 0.5]).astype(np.float64), 
                     mat=np.eye(3).flatten().astype(np.float64)
                 )
                 
@@ -144,6 +163,7 @@ def enjoy(algo, model_path, directional=False, sleep_time=0.01):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--env", type=str, default="Ant-v5", help="Gymnasium environment ID (e.g., Hopper-v5, Walker2d-v5)")
     parser.add_argument("--algo", type=str, choices=["ppo", "sac", "rec_ppo"], default="ppo")
     parser.add_argument("--path", type=str, help="Path to the model zip file")
     parser.add_argument("--directional", action="store_true", help="Whether the model was trained with directional controls")
@@ -151,12 +171,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Set default paths if not provided
-    paths = {
-        "ppo": "./models/ppo_ant_dir/ppo_ant_dir_final.zip" if args.directional else "./models/ppo_ant/ppo_ant_final.zip",
-        "sac": "./models/sac_ant/sac_ant_final.zip",
-        "rec_ppo": "./models/rec_ppo_ant/rec_ppo_ant_final.zip"
-    }
+    env_name_clean = args.env.replace("-v5", "").lower()
+    log_suffix = "_dir" if args.directional else ""
+    model_name = f"{args.algo}_{env_name_clean}{log_suffix}"
     
-    model_path = args.path if args.path else paths.get(args.algo)
+    model_path = args.path if args.path else f"./models/{model_name}/{model_name}_final.zip"
     
-    enjoy(args.algo, model_path, directional=args.directional, sleep_time=args.sleep)
+    enjoy(args.algo, args.env, model_path, directional=args.directional, sleep_time=args.sleep)
