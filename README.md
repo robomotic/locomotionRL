@@ -123,6 +123,16 @@ The dashboard is designed to help you diagnose training issues without waiting f
 - **Watch the Slopes**: If you enable terrain curriculum (`--terrain`), keep an eye on "Straight Meters". If it levels off when a slope is introduced, the robot might be stuck and unable to climb.
 - **Stability**: A decreasing "Avg. Ang. Vel" usually indicates the robot is becoming more stable and balanced.
 
+## Hyperparameter Tuning
+Optimizing training parameters is essential for achieving high-performance locomotion. This project leverages best practices for PPO and SAC.
+
+### Key Strategies:
+- **Learning Rate**: Typical values range from `1e-4` to `1e-3`. For PPO, a **linear decay schedule** (starting high and decreasing over time) often leads to better convergence.
+- **Batch Size**: Larger batches (256-512) stabilize gradients, especially in environments with complex contact physics like the Ant.
+- **Automated Optimization**: We recommend using **Optuna** for Bayesian hyperparameter optimization to automatically find the best values for `n_steps`, `learning_rate`, and `ent_coef`.
+
+For a deep dive into tuning these parameters, see the [Hyperparameter Tuning Guide](hyperparameter_tuning.md).
+
 ## Future Research & Scaling
 Inspired by the state-of-the-art paper *"Learning to Walk in Minutes Using Massively Parallel Deep Reinforcement Learning"* ([Arxiv](https://arxiv.org/abs/2109.11978)), here are suggestions for taking this project to the next level:
 
@@ -148,8 +158,11 @@ Inspired by the state-of-the-art paper *"Learning to Walk in Minutes Using Massi
 - `scripts/enjoy_models.py`: Universal evaluation script with **interactive 3D arrow guidance and WASD control**.
 - `scripts/evaluate_metrics.py`: Headless evaluation script for calculating **straight-line efficiency and stability metrics**.
 - `scripts/record_video.py`: Script to record agent performance to a video file.
+- `scripts/training_dashboard.py`: Real-time monitoring dashboard for tracking training progress.
 - `scripts/utils/directional_control.py`: Wrapper for directional training with **Cross-Track Error (CTE)** and **Heading Alignment** rewards.
 - `scripts/utils/domain_randomization.py`: Gymnasium wrapper for MuJoCo domain randomization.
+- `scripts/utils/terrain.py`: Curriculum wrapper for progressive floor inclination.
+- `scripts/utils/callbacks.py`: Custom SB3 callbacks for logging locomotion-specific metrics.
 - `models/simple_biped.xml`: Educational MJCF model of a bipedal robot.
 - `CLOUD.md`: Comprehensive report on scaling training using AWS, Lambda Labs, RunPod, and Vast.ai.
-- `ANIMATION_TRANSFER.md`: Guide for exporting motions to Unity and Godot (FBX/ONNX).
+- `hyperparameter_tuning.md`: Strategies for optimizing RL agent performance.

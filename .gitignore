@@ -43,3 +43,4 @@ models/rec_ppo_ant_dir/
 .vscode/
 .idea/
 .DS_Store
+models/ppo_hopper_dir/ppo_hopper_dir_stats.pkl
