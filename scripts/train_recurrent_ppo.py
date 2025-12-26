@@ -6,24 +6,34 @@ import glob
 import argparse
 from utils.domain_randomization import wrap_env
 from utils.directional_control import wrap_directional
+from utils.terrain import TerrainCurriculumWrapper
 
-def make_env(env_id, directional=False):
+def make_env(env_id, directional=False, terrain_curriculum=False, total_timesteps=1000000):
     def _init():
         if directional:
             from utils.directional_control import wrap_directional
-            return wrap_directional(env_id)
-        from utils.domain_randomization import wrap_env
-        return wrap_env(env_id)
+            env = wrap_directional(env_id)
+        else:
+            from utils.domain_randomization import wrap_env
+            env = wrap_env(env_id)
+            
+        if terrain_curriculum:
+            env = TerrainCurriculumWrapper(env, total_timesteps=total_timesteps)
+        return env
     return _init
 
-def train(env_id="Ant-v5", directional=False, n_envs=8):
+def train(env_id="Ant-v5", directional=False, terrain_curriculum=False, n_envs=8):
+    total_timesteps = 1000000 
+    
     # Create environment
     from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
-    env = SubprocVecEnv([make_env(env_id, directional) for _ in range(n_envs)])
+    env = SubprocVecEnv([make_env(env_id, directional, terrain_curriculum, total_timesteps) for _ in range(n_envs)])
     env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.)
     
     env_name_clean = env_id.replace("-v5", "").lower()
-    log_suffix = "_dir" if directional else ""
+    log_suffix = ""
+    if directional: log_suffix += "_dir"
+    if terrain_curriculum: log_suffix += "_terrain"
     # Directory to save logs and models
     log_dir = f"./logs/rec_ppo_{env_name_clean}{log_suffix}/"
     model_dir = f"./models/rec_ppo_{env_name_clean}{log_suffix}/"
@@ -61,7 +71,7 @@ def train(env_id="Ant-v5", directional=False, n_envs=8):
 
     # Setup callbacks
     from stable_baselines3.common.callbacks import CallbackList
-    from utils.callbacks import LocomotionMetricsCallback
+    from utils.callbacks import LocomotionMetricsCallback, TerrainCurriculumCallback
     
     checkpoint_callback = CheckpointCallback(
         save_freq=10000,
@@ -70,11 +80,16 @@ def train(env_id="Ant-v5", directional=False, n_envs=8):
     )
     
     metrics_callback = LocomotionMetricsCallback(log_dir=log_dir)
-    callback = CallbackList([checkpoint_callback, metrics_callback])
+    callbacks = [checkpoint_callback, metrics_callback]
+    
+    if terrain_curriculum:
+        callbacks.append(TerrainCurriculumCallback())
+        
+    callback = CallbackList(callbacks)
 
     # Start training
     print(f"Starting training on {env_id} with RecurrentPPO...")
-    total_timesteps = 1000000 
+    # total_timesteps defined above
     model.learn(
         total_timesteps=total_timesteps,
         callback=callback,
@@ -93,5 +108,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", type=str, default="Ant-v5", help="Gymnasium environment ID")
     parser.add_argument("--directional", action="store_true", help="Train for WASD-style directional control")
+    parser.add_argument("--terrain", action="store_true", help="Enable progressive terrain inclination curriculum")
     args = parser.parse_args()
-    train(env_id=args.env, directional=args.directional)
+    train(env_id=args.env, directional=args.directional, terrain_curriculum=args.terrain)

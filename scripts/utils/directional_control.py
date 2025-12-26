@@ -32,6 +32,11 @@ class DirectionalControlWrapper(Wrapper):
         return self._get_obs(obs), info
 
     def _sample_new_goal(self):
+        # 10% chance of "Stationary" goal
+        if np.random.rand() < 0.1:
+            self.current_goal = np.array([0.0, 0.0])
+            return
+
         if self.is_2d:
             # For 2D robots, goal is only Forward (+1) or Backward (-1) on X
             dir = 1.0 if np.random.rand() > 0.5 else -1.0
@@ -66,7 +71,13 @@ class DirectionalControlWrapper(Wrapper):
         info['ang_velocity'] = ang_vel
 
         # 2. Directional Reward (Progress toward goal)
-        directional_reward = np.dot(actual_vel, self.current_goal)
+        is_stationary = np.all(self.current_goal == 0)
+        if is_stationary:
+            # Penalty for moving when we should be stationary
+            drift_penalty = -1.0 * np.linalg.norm(actual_vel)
+            directional_reward = drift_penalty
+        else:
+            directional_reward = np.dot(actual_vel, self.current_goal)
         
         # 3. Cross-Track Error (CTE) Penalty
         if self.is_2d:
@@ -79,7 +90,7 @@ class DirectionalControlWrapper(Wrapper):
         # 4. Heading Alignment Reward
         vel_mag = np.linalg.norm(actual_vel)
         alignment_reward = 0.0
-        if vel_mag > 0.1:
+        if not is_stationary and vel_mag > 0.1:
             alignment = np.dot(actual_vel / vel_mag, self.current_goal)
             alignment_reward = 0.5 * alignment
             

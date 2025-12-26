@@ -70,3 +70,24 @@ class LocomotionMetricsCallback(BaseCallback):
             self.logger.record("locomotion/avg_ang_vel", avg_ang_vel)
             
         return True
+
+class TerrainCurriculumCallback(BaseCallback):
+    """
+    Callback to update the terrain inclination in the environments
+    based on the current global training step.
+    """
+    def __init__(self, verbose=0):
+        super().__init__(verbose)
+
+    def _on_step(self) -> bool:
+        # Update each environment in the vectorized env
+        # SB3 VecEnv provides env_method to call a method on each sub-environment
+        # We call update_curriculum with the current total timesteps
+        self.training_env.env_method("update_curriculum", self.num_timesteps)
+        
+        # Log the current angle from the first environment
+        if self.n_calls % 1000 == 0:
+            angles = self.training_env.get_attr("current_angle_deg")
+            self.logger.record("terrain/inclination_deg", angles[0])
+            
+        return True

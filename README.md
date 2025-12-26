@@ -77,6 +77,39 @@ python scripts/evaluate_metrics.py --algo ppo --directional --episodes 50
 ```
 This script calculates **Straight Line Score** (Directional Efficiency), **Flip/Failure Rate**, and **Survival Probability**.
 
+## Example: Training the Hopper
+The **Hopper-v5** is a 2D one-legged robot. It is a great environment to start with because it trains much faster than the Ant.
+
+### 1. Start Training
+To train the Hopper with directional control:
+```bash
+python scripts/train_ppo.py --env Hopper-v5 --directional
+```
+
+### 2. Monitor in Real-Time
+While the script is training, open a **new terminal** and run the dashboard to see the progress:
+```bash
+python scripts/training_dashboard.py --env Hopper-v5 --directional
+```
+The dashboard will show live updates of:
+- **Total Flips**: How many times the robot fell over.
+- **Straight Meters**: Cumulative distance traveled toward the target.
+- **Action Jitter**: Smoothness of the movements.
+- **Stability**: Average angular velocity (lower is better).
+
+### 3. Test Your Model
+Once training is finished (or reached a good level), test it with WASD control:
+```bash
+python scripts/enjoy_models.py --env Hopper-v5 --directional
+```
+
+## Using the Training Dashboard
+The dashboard is designed to help you diagnose training issues without waiting for the full process to finish.
+
+- **Check Jitter**: If "Action Jitter" is very high, it means the robot's movements are jerky. You might need to increase the `ent_coef` (entropy coefficient) or add an action smoothness penalty.
+- **Watch the Slopes**: If you enable terrain curriculum (`--terrain`), keep an eye on "Straight Meters". If it levels off when a slope is introduced, the robot might be stuck and unable to climb.
+- **Stability**: A decreasing "Avg. Ang. Vel" usually indicates the robot is becoming more stable and balanced.
+
 ## Future Research & Scaling
 Inspired by the state-of-the-art paper *"Learning to Walk in Minutes Using Massively Parallel Deep Reinforcement Learning"* ([Arxiv](https://arxiv.org/abs/2109.11978)), here are suggestions for taking this project to the next level:
 

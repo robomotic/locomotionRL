@@ -55,11 +55,13 @@ def animate(i, csv_path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--env", type=str, default="Ant-v5", help="Environment ID (e.g., Hopper-v5)")
     parser.add_argument("--directional", action="store_true", help="Monitor directional logs")
     args = parser.parse_args()
 
+    env_name_clean = args.env.replace("-v5", "").lower()
     log_suffix = "_dir" if args.directional else ""
-    csv_path = f"./logs/ppo_ant{log_suffix}/locomotion_progress.csv"
+    csv_path = f"./logs/ppo_{env_name_clean}{log_suffix}/locomotion_progress.csv"
 
     print(f"Starting dashboard monitoring: {csv_path}")
     print("Close the window to stop.")
