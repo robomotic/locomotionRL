@@ -7,7 +7,7 @@ import time
 import os
 import argparse
 
-def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01):
+def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01, slope=0.0):
     if not os.path.exists(model_path):
         print(f"Model not found at {model_path}")
         return
@@ -18,8 +18,17 @@ def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01):
         render_mode = "human" if not directional else None
         if directional:
             from utils.directional_control import wrap_directional
-            return wrap_directional(env_id, render_mode=render_mode)
-        return gym.make(env_id, render_mode=render_mode)
+            env = wrap_directional(env_id, render_mode=render_mode)
+        else:
+            env = gym.make(env_id, render_mode=render_mode)
+        
+        # Always add terrain wrapper to allow real-time slope adjustments via keyboard
+        from utils.terrain import TerrainCurriculumWrapper
+        env = TerrainCurriculumWrapper(env)
+        if slope != 0:
+            env.current_angle_deg = slope
+            env._apply_inclination(slope)
+        return env
 
     # Create environment for evaluation
     env = DummyVecEnv([make_env])
@@ -58,6 +67,7 @@ def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01):
 
     # Setup for custom visualization if directional
     viewer = None
+    applied_slope = slope
     if directional:
         import mujoco.viewer
         # Access the base MuJoCo environment through the wrappers
@@ -87,6 +97,14 @@ def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01):
             if 32 <= keycode <= 126 and chr(keycode) == 'M': 
                 manual_mode = not manual_mode
                 print(f"\nMode switched to: {'MANUAL' if manual_mode else 'RANDOM'}")
+            
+            nonlocal applied_slope
+            if keycode == ord('='): # Plus key (no shift)
+                applied_slope += 1.0
+                print(f"\rSlope: {applied_slope:.1f}°", end="")
+            elif keycode == ord('-'): # Minus key
+                applied_slope -= 1.0
+                print(f"\rSlope: {applied_slope:.1f}°", end="")
 
         viewer = mujoco.viewer.launch_passive(base_env.model, base_env.data, key_callback=key_callback)
         # Zoom out for better visibility
@@ -94,9 +112,23 @@ def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01):
 
     try:
         while True:
-            if directional and manual_mode:
-                # Override the wrapper's random goal with our keyboard input
-                env.unwrapped.envs[0].current_goal = cmd_goal
+            if directional:
+                if manual_mode:
+                    # Override the wrapper's random goal with our keyboard input
+                    env.unwrapped.envs[0].current_goal = cmd_goal
+                
+                # Apply dynamic slope if changed via keyboard
+                inner_env = env.unwrapped.envs[0]
+                # Walk up the wrapper chain to find TerrainCurriculumWrapper
+                curr = inner_env
+                while hasattr(curr, 'env'):
+                    from utils.terrain import TerrainCurriculumWrapper
+                    if isinstance(curr, TerrainCurriculumWrapper):
+                        if curr.current_angle_deg != applied_slope:
+                            curr.current_angle_deg = applied_slope
+                            curr._apply_inclination(applied_slope)
+                        break
+                    curr = curr.env
 
             # Get action from the model
             extended_obs = obs
@@ -168,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument("--path", type=str, help="Path to the model zip file")
     parser.add_argument("--directional", action="store_true", help="Whether the model was trained with directional controls")
     parser.add_argument("--sleep", type=float, default=0.01, help="Time to sleep between steps (increase to slow down)")
+    parser.add_argument("--slope", type=float, default=0.0, help="Floor inclination in degrees")
     args = parser.parse_args()
     
     # Set default paths if not provided
@@ -177,4 +210,4 @@ if __name__ == "__main__":
     
     model_path = args.path if args.path else f"./models/{model_name}/{model_name}_final.zip"
     
-    enjoy(args.algo, args.env, model_path, directional=args.directional, sleep_time=args.sleep)
+    enjoy(args.algo, args.env, model_path, directional=args.directional, sleep_time=args.sleep, slope=args.slope)

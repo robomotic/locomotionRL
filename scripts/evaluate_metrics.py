@@ -7,7 +7,7 @@ import os
 import argparse
 from tqdm import tqdm
 
-def evaluate_metrics(algo, model_path, directional=False, n_episodes=20):
+def evaluate_metrics(algo, env_id, model_path, directional=False, n_episodes=20):
     if not os.path.exists(model_path):
         print(f"Model not found at {model_path}")
         return
@@ -16,8 +16,8 @@ def evaluate_metrics(algo, model_path, directional=False, n_episodes=20):
         # Evaluation should be headless for speed
         if directional:
             from utils.directional_control import wrap_directional
-            return wrap_directional("Ant-v5")
-        return gym.make("Ant-v5")
+            return wrap_directional(env_id)
+        return gym.make(env_id)
 
     env = DummyVecEnv([make_env])
     
@@ -125,17 +125,18 @@ def evaluate_metrics(algo, model_path, directional=False, n_episodes=20):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--env", type=str, default="Ant-v5", help="Gymnasium environment ID (e.g., Hopper-v5)")
     parser.add_argument("--algo", type=str, choices=["ppo", "sac", "rec_ppo"], default="ppo")
     parser.add_argument("--path", type=str, help="Path to the model zip file")
     parser.add_argument("--directional", action="store_true", help="Whether the model was trained with directional controls")
     parser.add_argument("--episodes", type=int, default=20, help="Number of episodes to evaluate")
     args = parser.parse_args()
     
-    paths = {
-        "ppo": "./models/ppo_ant_dir/ppo_ant_dir_final.zip" if args.directional else "./models/ppo_ant/ppo_ant_final.zip",
-        "sac": "./models/sac_ant/sac_ant_final.zip",
-        "rec_ppo": "./models/rec_ppo_ant/rec_ppo_ant_final.zip"
-    }
+    # Set default paths if not provided
+    env_name_clean = args.env.replace("-v5", "").lower()
+    log_suffix = "_dir" if args.directional else ""
+    model_name = f"{args.algo}_{env_name_clean}{log_suffix}"
     
-    model_path = args.path if args.path else paths.get(args.algo)
-    evaluate_metrics(args.algo, model_path, directional=args.directional, n_episodes=args.episodes)
+    model_path = args.path if args.path else f"./models/{model_name}/{model_name}_final.zip"
+    
+    evaluate_metrics(args.algo, args.env, model_path, directional=args.directional, n_episodes=args.episodes)

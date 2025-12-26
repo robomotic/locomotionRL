@@ -68,6 +68,8 @@ python scripts/enjoy_models.py --algo ppo --directional --sleep 0.05
 ```
 - **W/A/S/D**: Steer the Ant in real-time.
 - **M**: Toggle between **Manual** control (Green Arrow) and **Random** goals (Red Arrow).
+- **+/-**: Increase/Decrease the floor inclination (slope) in real-time.
+- **--slope**: Set the initial floor inclination (e.g., `--slope 10`).
 - **--sleep**: Adjust the frame rate/simulation speed.
 
 ### Analytical Metrics
@@ -102,6 +104,17 @@ Once training is finished (or reached a good level), test it with WASD control:
 ```bash
 python scripts/enjoy_models.py --env Hopper-v5 --directional
 ```
+
+### 4. Record a Video
+To save a video of your robot's performance:
+```bash
+python scripts/record_video.py --env Hopper-v5 --directional
+```
+You can even record it on a slope:
+```bash
+python scripts/record_video.py --env Hopper-v5 --directional --slope 15
+```
+The videos will be saved in the `videos/` directory.
 
 ## Using the Training Dashboard
 The dashboard is designed to help you diagnose training issues without waiting for the full process to finish.
