@@ -22,9 +22,7 @@ def make_env(env_id, directional=False, terrain_curriculum=False, total_timestep
         return env
     return _init
 
-def train(env_id="Ant-v5", directional=False, terrain_curriculum=False, n_envs=8):
-    total_timesteps = 1000000 
-    
+def train(env_id="Ant-v5", directional=False, terrain_curriculum=False, n_envs=8, total_timesteps=10000000):
     # Create environment
     from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
     env = SubprocVecEnv([make_env(env_id, directional, terrain_curriculum, total_timesteps) for _ in range(n_envs)])
@@ -109,5 +107,6 @@ if __name__ == "__main__":
     parser.add_argument("--env", type=str, default="Ant-v5", help="Gymnasium environment ID")
     parser.add_argument("--directional", action="store_true", help="Train for WASD-style directional control")
     parser.add_argument("--terrain", action="store_true", help="Enable progressive terrain inclination curriculum")
+    parser.add_argument("--timesteps", type=int, default=10000000, help="Total training timesteps")
     args = parser.parse_args()
-    train(env_id=args.env, directional=args.directional, terrain_curriculum=args.terrain)
+    train(env_id=args.env, directional=args.directional, terrain_curriculum=args.terrain, total_timesteps=args.timesteps)
