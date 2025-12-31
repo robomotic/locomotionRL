@@ -6,6 +6,8 @@ from sb3_contrib import RecurrentPPO
 from gymnasium.wrappers import RecordVideo
 import os
 import argparse
+import json
+from PIL import Image, ImageDraw, ImageFont
 
 def record(algo, env_id, model_path, direction=None, slope=0.0, video_length=1000):
     """
@@ -122,16 +124,80 @@ def record(algo, env_id, model_path, direction=None, slope=0.0, video_length=100
             latest_video = max(video_files, key=os.path.getctime)
             gif_path = latest_video.replace('.mp4', '.gif')
             
-            print(f"\nConverting video to GIF...")
+            print(f"\nOverlaying info and converting to GIF...")
             clip = VideoFileClip(latest_video)
             
-            # Optimize GIF: reduce fps and resize if needed
-            # For locomotion videos, 10 fps is usually sufficient
-            clip_resized = clip.resized(width=480)  # Resize to 480px width for smaller file size
-            clip_resized.write_gif(gif_path, fps=10)
-            clip.close()
+            # Extract parameters from model
+            lr = model.learning_rate if hasattr(model, 'learning_rate') else "N/A"
+            # If lr is a function (schedule), get its value
+            if callable(lr):
+                lr = lr(1.0) # approx value
+            gamma = model.gamma if hasattr(model, 'gamma') else "N/A"
             
-            print(f"✓ GIF saved to: {gif_path}")
+            # Define text overlay function
+            def add_overlay(get_frame, t):
+                frame = get_frame(t)
+                img = Image.fromarray(frame)
+                draw = ImageDraw.Draw(img)
+                
+                # facts to display
+                facts = [
+                    f"Env: {env_id}",
+                    f"Direction: {direction if direction else 'forward'}",
+                    f"Slope: {slope}°",
+                    f"LR: {lr}",
+                    f"Gamma: {gamma}",
+                    f"Steps: {int(t * 100)}" # placeholder for progress
+                ]
+                
+                # Draw black semi-transparent box
+                box_h = len(facts) * 20 + 10
+                draw.rectangle([5, 5, 200, 5 + box_h], fill=(0, 0, 0, 150))
+                
+                # Draw text
+                y = 10
+                for fact in facts:
+                    draw.text((10, y), fact, fill=(255, 255, 255))
+                    y += 20
+                    
+                return np.array(img)
+
+            def process_frame(image):
+                img = Image.fromarray(image)
+                draw = ImageDraw.Draw(img)
+                facts = [
+                    f"Env: {env_id}",
+                    f"Direction: {direction if direction else 'forward'}",
+                    f"Slope: {slope}°",
+                    f"LR: {lr}",
+                    f"Gamma: {gamma}"
+                ]
+                # Try to get loss if possible (we don't have it here, so we skip or put N/A)
+                facts.append("Loss: N/A (Trained Model)")
+                
+                box_h = len(facts) * 20 + 10
+                draw.rectangle([5, 5, 220, 5 + box_h], fill=(0, 0, 0, 180))
+                y = 10
+                for fact in facts:
+                    draw.text((10, y), fact, fill=(255, 255, 255))
+                    y += 20
+                return np.array(img)
+
+            if hasattr(clip, 'image_transform'):
+                clip_final = clip.image_transform(process_frame)
+            else:
+                clip_final = clip.fl_image(process_frame)
+            
+            # Optimize GIF: reduce fps and resize if needed
+            clip_resized = clip_final.resized(width=480)
+            clip_resized.write_gif(gif_path, fps=10)
+            
+            # Also save the MP4 with overlay if desired (overwriting original or new name)
+            # latest_video_overlay = latest_video.replace('.mp4', '_overlay.mp4')
+            # clip_final.write_videofile(latest_video_overlay, codec="libx264")
+            
+            clip.close()
+            print(f"✓ GIF with overlay saved to: {gif_path}")
         else:
             print("Warning: Could not find recorded video file for GIF conversion")
     except ImportError:
