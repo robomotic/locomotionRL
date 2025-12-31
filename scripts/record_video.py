@@ -158,6 +158,17 @@ if __name__ == "__main__":
     env_name_clean = args.env.replace("-v5", "").lower()
     log_suffix = f"_{args.direction}" if args.direction else ""
     model_name = f"{args.algo}_{env_name_clean}{log_suffix}"
-    model_path = args.path if args.path else f"./models/{model_name}/{model_name}_final.zip"
+    
+    if args.path:
+        model_path = args.path
+    else:
+        # Try standard path first
+        model_path = f"./models/{model_name}/{model_name}_final.zip"
+        # If not found, try the _terrain suffix which is common for our curriculum
+        if not os.path.exists(model_path):
+            terrain_model_name = f"{model_name}_terrain"
+            terrain_path = f"./models/{terrain_model_name}/{terrain_model_name}_final.zip"
+            if os.path.exists(terrain_path):
+                model_path = terrain_path
     
     record(args.algo, args.env, model_path, direction=args.direction, slope=args.slope, video_length=args.length)

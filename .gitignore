@@ -28,7 +28,6 @@ ENV/
 
 # Project Specific
 logs/
-videos/
 *.zip
 
 # Ignore trained models but keep MJCF XMLs

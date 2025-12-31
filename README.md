@@ -98,6 +98,18 @@ python3 scripts/train_ppo.py \
 - **JSON Configs**: The script automatically loads `configs/walker2d_config.json` for environment parameters and uses the specified `--ppo-config` for algorithm hyperparameters.
 - **Explaination**: See `configs/ppo_config_explanation.md` for a detailed description of each PPO parameter.
 
+### Recording Directional Models
+Record high-quality videos and optimized GIFs for your trained directional models:
+```bash
+# Record forward policy on flat ground
+python scripts/record_video.py --env Walker2d-v5 --algo ppo --direction forward --slope 0
+
+# Record backward policy on a 5-degree slope
+python scripts/record_video.py --env Walker2d-v5 --algo ppo --direction backward --slope 5
+```
+- **Output**: Files are saved in `videos/` as both `.mp4` and `.gif`.
+- **Slopes**: Use the `--slope` argument to test how directional models handle different inclinations.
+
 ### Evaluation: Single Direction
 ```bash
 # Test the backward-walking Walker2d
