@@ -52,46 +52,92 @@ All training scripts (`train_ppo.py`, `train_sac.py`, `train_recurrent_ppo.py`) 
 - To **pause**: Simply stop the script (e.g., Ctrl+C).
 - To **recover**: Run the same training script again. It will automatically detect the latest checkpoint or final model and resume training from that point.
 
-## Directional Control (WASD Style)
-You can now train the robot to follow a specific direction command (Forward, Backward, Left, Right).
-### Training
-To train a directional model, use the `--directional` flag:
-```bash
-python scripts/train_ppo.py --directional
-```
-This adds a 2D goal vector to the observation space and modifies the reward to encourage following that goal. During training, the goal changes randomly every 200 steps to force the agent to learn all directions.
+## Directional Control: Separate Policies
 
-### Evaluation & Keyboard Control
-To evaluate a directional model with interactive steering:
+The approach for directional locomotion has been redesigned. Instead of training a single goal-conditioned policy with direction vectors in the observation space, we now train **separate policies** for each direction. This approach is simpler, more effective, and doesn't require augmenting the observation space.
+
+### How It Works
+- **Non-directional mode**: Uses the standard Gymnasium reward function (forward walking reward)
+- **Directional mode**: Trains dedicated policies for specific directions:
+  - **2D robots (Walker2d, Hopper)**: `forward`, `backward`
+  - **3D robots (Ant)**: `forward`, `backward`, `left`, `right`
+
+### Training a Single Direction
 ```bash
-python scripts/enjoy_models.py --algo ppo --directional --sleep 0.05
+# Train Walker2d to walk forward (standard behavior)
+python scripts/train_ppo.py --env Walker2d-v5
+
+# Train Walker2d to walk backward
+python scripts/train_ppo.py --env Walker2d-v5 --direction backward
+
+# Train Ant to strafe left
+python scripts/train_ppo.py --env Ant-v5 --direction left
 ```
-- **W/A/S/D**: Steer the Ant in real-time.
-- **M**: Toggle between **Manual** control (Green Arrow) and **Random** goals (Red Arrow).
-- **+/-**: Increase/Decrease the floor inclination (slope) in real-time.
-- **--slope**: Set the initial floor inclination (e.g., `--slope 10`).
-- **--sleep**: Adjust the frame rate/simulation speed.
+
+### Training All Directions
+To train separate policies for all valid directions automatically:
+```bash
+# For Walker2d: trains forward and backward policies
+python scripts/train_ppo.py --env Walker2d-v5 --all-directions
+
+# For Ant: trains forward, backward, left, and right policies
+python scripts/train_ppo.py --env Ant-v5 --all-directions
+```
+
+### Advanced Training with Configurations
+To train with high parallelism, terrain curriculum, and custom hyperparameters from JSON configurations:
+```bash
+python3 scripts/train_ppo.py \
+    --env Walker2d-v5 \
+    --all-directions \
+    --n-envs 16 \
+    --terrain \
+    --ppo-config configs/ppo_config.json \
+    --timesteps 10000000
+```
+- **JSON Configs**: The script automatically loads `configs/walker2d_config.json` for environment parameters and uses the specified `--ppo-config` for algorithm hyperparameters.
+- **Explaination**: See `configs/ppo_config_explanation.md` for a detailed description of each PPO parameter.
+
+### Evaluation: Single Direction
+```bash
+# Test the backward-walking Walker2d
+python scripts/enjoy_models.py --env Walker2d-v5 --direction backward
+
+# Test with floor slope
+python scripts/enjoy_models.py --env Walker2d-v5 --direction forward --slope 10
+```
+
+### Evaluation: Interactive Mode
+Switch between all trained directional policies using the keyboard:
+```bash
+python scripts/enjoy_models.py --env Ant-v5 --interactive
+```
+- **W/A/S/D or Arrow Keys**: Switch to the corresponding direction's policy
+- **+/-**: Adjust floor inclination in real-time
 
 ### Analytical Metrics
-To get a detailed report on how straight the robot walks and its flip rate:
+To evaluate direction-specific policies:
 ```bash
-python scripts/evaluate_metrics.py --algo ppo --directional --episodes 50
+python scripts/evaluate_metrics.py --algo ppo --env Walker2d-v5 --direction backward --episodes 50
 ```
-This script calculates **Straight Line Score** (Directional Efficiency), **Flip/Failure Rate**, and **Survival Probability**.
 
 ## Example: Training the Hopper
 The **Hopper-v5** is a 2D one-legged robot. It is a great environment to start with because it trains much faster than the Ant.
 
 ### 1. Start Training
-To train the Hopper with directional control:
+Train both forward and backward policies for the Hopper:
 ```bash
-python scripts/train_ppo.py --env Hopper-v5 --directional
+python scripts/train_ppo.py --env Hopper-v5 --all-directions
+```
+Or train just the forward direction (standard behavior):
+```bash
+python scripts/train_ppo.py --env Hopper-v5
 ```
 
 ### 2. Monitor in Real-Time
 While the script is training, open a **new terminal** and run the dashboard to see the progress:
 ```bash
-python scripts/training_dashboard.py --env Hopper-v5 --directional
+python scripts/training_dashboard.py --env Hopper-v5
 ```
 The dashboard will show live updates of:
 - **Total Flips**: How many times the robot fell over.
@@ -100,21 +146,26 @@ The dashboard will show live updates of:
 - **Stability**: Average angular velocity (lower is better).
 
 ### 3. Test Your Model
-Once training is finished (or reached a good level), test it with WASD control:
+Once training is finished (or reached a good level), test it:
 ```bash
-python scripts/enjoy_models.py --env Hopper-v5 --directional
+# Test forward policy
+python scripts/enjoy_models.py --env Hopper-v5
+
+# Test backward policy
+python scripts/enjoy_models.py --env Hopper-v5 --direction backward
 ```
 
 ### 4. Record a Video
 To save a video of your robot's performance:
 ```bash
-python scripts/record_video.py --env Hopper-v5 --directional
+python scripts/record_video.py --env Hopper-v5
 ```
 You can even record it on a slope:
 ```bash
-python scripts/record_video.py --env Hopper-v5 --directional --slope 15
+python scripts/record_video.py --env Hopper-v5 --direction backward --slope 15
 ```
-The videos will be saved in the `videos/` directory.
+The videos will be saved in the `videos/` directory as both **MP4** and **GIF** formats. The GIF is automatically generated with optimized settings (480px width, 10 fps) for easy sharing.
+
 
 ## Using the Training Dashboard
 The dashboard is designed to help you diagnose training issues without waiting for the full process to finish.

@@ -7,16 +7,27 @@ import os
 import argparse
 from tqdm import tqdm
 
-def evaluate_metrics(algo, env_id, model_path, directional=False, n_episodes=20):
+def evaluate_metrics(algo, env_id, model_path, direction=None, n_episodes=20):
+    """
+    Evaluate a trained model and compute locomotion metrics.
+    
+    Args:
+        algo: Algorithm used ("ppo", "sac", "rec_ppo")
+        env_id: Gymnasium environment ID
+        model_path: Path to the trained model
+        direction: If specified, uses directional policy wrapper for this direction.
+                   If None, uses standard environment.
+        n_episodes: Number of episodes to evaluate
+    """
     if not os.path.exists(model_path):
         print(f"Model not found at {model_path}")
         return
 
     def make_env():
         # Evaluation should be headless for speed
-        if directional:
-            from utils.directional_control import wrap_directional
-            return wrap_directional(env_id)
+        if direction:
+            from utils.directional_control import wrap_directional_policy
+            return wrap_directional_policy(env_id, direction=direction)
         return gym.make(env_id)
 
     env = DummyVecEnv([make_env])
@@ -38,11 +49,27 @@ def evaluate_metrics(algo, env_id, model_path, directional=False, n_episodes=20)
         return
 
     print(f"Evaluating {model_path} over {n_episodes} episodes...")
+    if direction:
+        print(f"Direction: {direction}")
     
     all_distances = []
-    all_efficiencies = [] # How straight it walks
+    all_efficiencies = []  # How straight it walks
     all_flips = 0
     episodes_completed = 0
+
+    # Get target direction based on mode
+    if direction:
+        from utils.directional_control import DirectionalPolicyWrapper
+        direction_map = {
+            "forward": np.array([1.0, 0.0]),
+            "backward": np.array([-1.0, 0.0]),
+            "left": np.array([0.0, 1.0]),
+            "right": np.array([0.0, -1.0]),
+        }
+        target_dir = direction_map.get(direction, np.array([1.0, 0.0]))
+    else:
+        # Default: forward (+X direction)
+        target_dir = np.array([1.0, 0.0])
 
     for ep in tqdm(range(n_episodes)):
         obs = env.reset()
@@ -52,11 +79,6 @@ def evaluate_metrics(algo, env_id, model_path, directional=False, n_episodes=20)
         
         # Track coordinates
         path = []
-        
-        # For directional models, target is part of obs or wrapper state
-        target_dir = np.array([1.0, 0.0])
-        if directional:
-            target_dir = env.unwrapped.envs[0].current_goal
 
         while not done:
             action, _ = model.predict(obs, deterministic=True)
@@ -74,10 +96,7 @@ def evaluate_metrics(algo, env_id, model_path, directional=False, n_episodes=20)
             
             if done:
                 # Check if it flipped (terminated) or reached time limit (truncated)
-                # In SB3 VecEnv, 'terminated' and 'truncated' are collapsed into 'done'
-                # but info['TimeLimit.truncated'] tells us if it was a timeout.
                 was_truncated = info.get('TimeLimit.truncated', False)
-                was_healthy = info.get('reward_survive', 0) > 0 # Ant-v5 healthy check
                 
                 # If not truncated and done, it likely flipped or went out of bounds
                 if not was_truncated:
@@ -109,10 +128,10 @@ def evaluate_metrics(algo, env_id, model_path, directional=False, n_episodes=20)
     print(f"Avg. Distance Traveled: {avg_dist:.2f} meters")
     print(f"Flip/Failure Rate:     {flip_rate:.1f}% ({all_flips}/{n_episodes} episodes)")
     
-    if directional:
+    if direction:
+        print(f"Direction:             {direction.upper()}")
         print(f"Straight Line Score:   {avg_eff*100:.1f}% (Directional Efficiency)")
     else:
-        # For non-directional, we assume 'Forward' (X+) is the goal
         print(f"Straight Line Score:   {avg_eff*100:.1f}% (X-axis alignment)")
         
     print(f"Survival Probability:  {(1 - all_flips/n_episodes)*100:.1f}%")
@@ -124,19 +143,23 @@ def evaluate_metrics(algo, env_id, model_path, directional=False, n_episodes=20)
         print("ADVICE: The robot's movement is erratic. Consider adding a 'straight-line' penalty in the reward function.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--env", type=str, default="Ant-v5", help="Gymnasium environment ID (e.g., Hopper-v5)")
+    parser = argparse.ArgumentParser(description="Evaluate trained locomotion models")
+    parser.add_argument("--env", type=str, default="Ant-v5", 
+                        help="Gymnasium environment ID (e.g., Hopper-v5, Walker2d-v5)")
     parser.add_argument("--algo", type=str, choices=["ppo", "sac", "rec_ppo"], default="ppo")
     parser.add_argument("--path", type=str, help="Path to the model zip file")
-    parser.add_argument("--directional", action="store_true", help="Whether the model was trained with directional controls")
-    parser.add_argument("--episodes", type=int, default=20, help="Number of episodes to evaluate")
+    parser.add_argument("--direction", type=str, default=None,
+                        choices=["forward", "backward", "left", "right"],
+                        help="Direction the model was trained for. If not set, uses standard model.")
+    parser.add_argument("--episodes", type=int, default=20, 
+                        help="Number of episodes to evaluate")
     args = parser.parse_args()
     
     # Set default paths if not provided
     env_name_clean = args.env.replace("-v5", "").lower()
-    log_suffix = "_dir" if args.directional else ""
+    log_suffix = f"_{args.direction}" if args.direction else ""
     model_name = f"{args.algo}_{env_name_clean}{log_suffix}"
     
     model_path = args.path if args.path else f"./models/{model_name}/{model_name}_final.zip"
     
-    evaluate_metrics(args.algo, args.env, model_path, directional=args.directional, n_episodes=args.episodes)
+    evaluate_metrics(args.algo, args.env, model_path, direction=args.direction, n_episodes=args.episodes)

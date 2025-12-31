@@ -7,18 +7,29 @@ import time
 import os
 import argparse
 
-def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01, slope=0.0):
+def enjoy(algo, env_id, model_path, direction=None, sleep_time=0.01, slope=0.0):
+    """
+    Run a trained model for visualization/enjoyment.
+    
+    Args:
+        algo: Algorithm used ("ppo", "sac", "rec_ppo")
+        env_id: Gymnasium environment ID
+        model_path: Path to the trained model
+        direction: If specified, uses directional policy wrapper for this direction.
+                   If None, uses standard environment.
+        sleep_time: Time to sleep between steps
+        slope: Floor inclination in degrees
+    """
     if not os.path.exists(model_path):
         print(f"Model not found at {model_path}")
         return
 
     # Helper function for environment creation
     def make_env():
-        # Use None for render_mode so we can use our own passive viewer for markers
-        render_mode = "human" if not directional else None
-        if directional:
-            from utils.directional_control import wrap_directional
-            env = wrap_directional(env_id, render_mode=render_mode)
+        render_mode = "human" if not direction else None
+        if direction:
+            from utils.directional_control import wrap_directional_policy
+            env = wrap_directional_policy(env_id, direction=direction, render_mode=render_mode)
         else:
             env = gym.make(env_id, render_mode=render_mode)
         
@@ -54,52 +65,38 @@ def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01, slope=0.
 
     obs = env.reset()
     print(f"Starting evaluation of {algo} model on {env_id}. Press Ctrl+C to stop.")
-    if directional:
-        print("CONTROLS: Use ARROW KEYS to steer the robot. Press 'M' to toggle Manual/Random mode.")
+    if direction:
+        print(f"Direction: {direction.upper()}")
+        print("Press '+'/'-' to adjust floor slope")
     
     # For recurrent models
     lstm_states = None
     episode_start = True
 
-    # Variables for keyboard control
-    manual_mode = directional # Start in manual if directional
-    cmd_goal = np.array([1.0, 0.0])
-
-    # Setup for custom visualization if directional
+    # Setup for custom visualization if direction specified
     viewer = None
     applied_slope = slope
-    if directional:
+    if direction:
         import mujoco.viewer
         # Access the base MuJoCo environment through the wrappers
         base_env = env.unwrapped.envs[0].unwrapped
         
-        # Key callback for steering (Arrows to avoid MuJoCo conflicts)
-        is_2d_robot = "Ant" not in env_id
-        def key_callback(keycode):
-            nonlocal cmd_goal, manual_mode
-            # GLFW Keycodes for Arrows
-            # UP: 265, DOWN: 264, LEFT: 263, RIGHT: 262
-            if is_2d_robot:
-                if keycode in [265, 262, ord('W'), ord('D')]: # Up/Right
-                    cmd_goal = np.array([1.0, 0.0])
-                elif keycode in [264, 263, ord('S'), ord('A')]: # Down/Left
-                    cmd_goal = np.array([-1.0, 0.0])
+        # Get the direction vector for visualization
+        from utils.directional_control import DirectionalPolicyWrapper
+        direction_wrapper = env.unwrapped.envs[0]
+        while not isinstance(direction_wrapper, DirectionalPolicyWrapper):
+            if hasattr(direction_wrapper, 'env'):
+                direction_wrapper = direction_wrapper.env
             else:
-                if keycode == 265 or keycode == ord('W'): # Forward
-                    cmd_goal = np.array([1.0, 0.0])
-                elif keycode == 264 or keycode == ord('S'): # Backward
-                    cmd_goal = np.array([-1.0, 0.0])
-                elif keycode == 263 or keycode == ord('A'): # Left
-                    cmd_goal = np.array([0.0, 1.0])
-                elif keycode == 262 or keycode == ord('D'): # Right
-                    cmd_goal = np.array([0.0, -1.0])
-            
-            if 32 <= keycode <= 126 and chr(keycode) == 'M': 
-                manual_mode = not manual_mode
-                print(f"\nMode switched to: {'MANUAL' if manual_mode else 'RANDOM'}")
-            
+                direction_wrapper = None
+                break
+        
+        goal_vector = direction_wrapper.goal_vector if direction_wrapper else np.array([1.0, 0.0])
+        
+        # Key callback for slope adjustment
+        def key_callback(keycode):
             nonlocal applied_slope
-            if keycode == ord('='): # Plus key (no shift)
+            if keycode == ord('='): # Plus key
                 applied_slope += 1.0
                 print(f"\rSlope: {applied_slope:.1f}°", end="")
             elif keycode == ord('-'): # Minus key
@@ -107,19 +104,13 @@ def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01, slope=0.
                 print(f"\rSlope: {applied_slope:.1f}°", end="")
 
         viewer = mujoco.viewer.launch_passive(base_env.model, base_env.data, key_callback=key_callback)
-        # Zoom out for better visibility
         viewer.cam.distance = 5.0
 
     try:
         while True:
-            if directional:
-                if manual_mode:
-                    # Override the wrapper's random goal with our keyboard input
-                    env.unwrapped.envs[0].current_goal = cmd_goal
-                
+            if direction:
                 # Apply dynamic slope if changed via keyboard
                 inner_env = env.unwrapped.envs[0]
-                # Walk up the wrapper chain to find TerrainCurriculumWrapper
                 curr = inner_env
                 while hasattr(curr, 'env'):
                     from utils.terrain import TerrainCurriculumWrapper
@@ -131,43 +122,47 @@ def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01, slope=0.
                     curr = curr.env
 
             # Get action from the model
-            extended_obs = obs
             if algo == "rec_ppo":
-                action, lstm_states = model.predict(extended_obs, state=lstm_states, episode_start=episode_start, deterministic=True)
+                action, lstm_states = model.predict(obs, state=lstm_states, episode_start=episode_start, deterministic=True)
                 episode_start = False
             else:
-                action, _states = model.predict(extended_obs, deterministic=True)
+                action, _states = model.predict(obs, deterministic=True)
             
             # Step the environment
             obs, rewards, dones, infos = env.step(action)
             
-            if directional and viewer and viewer.is_running():
-                # Update the 3D arrow visualization
-                directional_wrapper = env.unwrapped.envs[0]
-                base_env = directional_wrapper.unwrapped
-                goal = directional_wrapper.current_goal
+            if direction and viewer and viewer.is_running():
+                # Update visualization
+                from utils.directional_control import DirectionalPolicyWrapper
                 
-                # 1. Camera Follow: Update lookat to torso position
-                # data.xpos[1] is the global 3D position of the root body
+                # Find the wrapper
+                curr = env.unwrapped.envs[0]
+                while hasattr(curr, 'env'):
+                    if isinstance(curr, DirectionalPolicyWrapper):
+                        break
+                    curr = curr.env
+                
+                base_env = curr.unwrapped
+                goal = curr.goal_vector
+                
+                # Camera Follow
                 viewer.cam.lookat[:] = base_env.data.xpos[1]
 
-                # 2. Center the arrow on the robot
+                # Arrow visualization
                 robot_pos = base_env.data.xpos[1]
                 
-                # Add a marker (arrow) to the scene
                 viewer.user_scn.ngeom = 0
                 import mujoco
-                # Arrow points from robot_pos in direction of goal
                 mujoco.mjv_initGeom(
                     viewer.user_scn.geoms[0],
                     type=mujoco.mjtGeom.mjGEOM_ARROW,
                     size=np.array([0.05, 0.05, 0.4], dtype=np.float64),
-                    rgba=np.array([0, 1, 0, 1], dtype=np.float32) if manual_mode else np.array([1, 0, 0, 1], dtype=np.float32), 
+                    rgba=np.array([0, 1, 0, 1], dtype=np.float32),  # Green for fixed direction
                     pos=(robot_pos + [0, 0, 0.5]).astype(np.float64), 
                     mat=np.eye(3).flatten().astype(np.float64)
                 )
                 
-                # Calculate rotation to point in goal direction [dx, dy]
+                # Calculate rotation to point in goal direction
                 angle = np.arctan2(goal[1], goal[0])
                 c, s = np.cos(angle), np.sin(angle)
                 rot_mat = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=np.float32)
@@ -180,7 +175,6 @@ def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01, slope=0.
                 episode_start = True
                 print("\nEpisode end, resetting...")
             
-            # User defined slow down
             time.sleep(sleep_time)
             
             if viewer and not viewer.is_running():
@@ -193,21 +187,175 @@ def enjoy(algo, env_id, model_path, directional=False, sleep_time=0.01, slope=0.
             viewer.close()
         env.close()
 
+
+def enjoy_interactive(algo, env_id, model_paths_dict, sleep_time=0.01, slope=0.0):
+    """
+    Interactive mode: switch between directional policies using keyboard.
+    
+    Args:
+        algo: Algorithm used
+        env_id: Environment ID
+        model_paths_dict: Dict mapping direction -> model_path
+        sleep_time: Time between steps
+        slope: Initial floor slope
+    """
+    from utils.directional_control import wrap_directional_policy, get_valid_directions
+    
+    valid_dirs = get_valid_directions(env_id)
+    current_direction = "forward"
+    
+    # Load all models
+    models = {}
+    stats = {}
+    for direction, path in model_paths_dict.items():
+        if direction not in valid_dirs:
+            continue
+        if os.path.exists(path):
+            if algo == "ppo":
+                models[direction] = PPO.load(path)
+            elif algo == "sac":
+                models[direction] = SAC.load(path)
+            elif algo == "rec_ppo":
+                models[direction] = RecurrentPPO.load(path)
+            
+            stats_path = path.replace("_final.zip", "_stats.pkl").replace(".zip", "_stats.pkl")
+            if os.path.exists(stats_path):
+                stats[direction] = stats_path
+            print(f"Loaded {direction} policy from {path}")
+        else:
+            print(f"Warning: {direction} policy not found at {path}")
+    
+    if not models:
+        print("No models loaded!")
+        return
+    
+    # Create environment
+    def make_env():
+        env = wrap_directional_policy(env_id, direction=current_direction)
+        from utils.terrain import TerrainCurriculumWrapper
+        env = TerrainCurriculumWrapper(env)
+        return env
+    
+    env = DummyVecEnv([make_env])
+    
+    # Load stats for initial direction if available
+    if current_direction in stats:
+        env = VecNormalize.load(stats[current_direction], env)
+        env.training = False
+        env.norm_reward = False
+    
+    import mujoco.viewer
+    base_env = env.unwrapped.envs[0].unwrapped
+    
+    applied_slope = slope
+    
+    def key_callback(keycode):
+        nonlocal current_direction, applied_slope
+        
+        is_2d = "Ant" not in env_id
+        
+        if is_2d:
+            if keycode in [265, 262, ord('W'), ord('D')]:  # Forward
+                current_direction = "forward"
+            elif keycode in [264, 263, ord('S'), ord('A')]:  # Backward
+                current_direction = "backward"
+        else:
+            if keycode == 265 or keycode == ord('W'):
+                current_direction = "forward"
+            elif keycode == 264 or keycode == ord('S'):
+                current_direction = "backward"
+            elif keycode == 263 or keycode == ord('A'):
+                current_direction = "left"
+            elif keycode == 262 or keycode == ord('D'):
+                current_direction = "right"
+        
+        if keycode == ord('='):
+            applied_slope += 1.0
+            print(f"\rSlope: {applied_slope:.1f}°", end="")
+        elif keycode == ord('-'):
+            applied_slope -= 1.0
+            print(f"\rSlope: {applied_slope:.1f}°", end="")
+    
+    viewer = mujoco.viewer.launch_passive(base_env.model, base_env.data, key_callback=key_callback)
+    viewer.cam.distance = 5.0
+    
+    obs = env.reset()
+    print(f"Interactive mode. Use WASD/Arrow keys to switch directions. Press Ctrl+C to stop.")
+    print(f"Available directions: {list(models.keys())}")
+    
+    lstm_states = None
+    episode_start = True
+    
+    try:
+        while viewer.is_running():
+            # Get current model
+            model = models.get(current_direction)
+            if model is None:
+                model = models[list(models.keys())[0]]
+            
+            if algo == "rec_ppo":
+                action, lstm_states = model.predict(obs, state=lstm_states, episode_start=episode_start, deterministic=True)
+                episode_start = False
+            else:
+                action, _ = model.predict(obs, deterministic=True)
+            
+            obs, rewards, dones, infos = env.step(action)
+            
+            # Update visualization
+            viewer.cam.lookat[:] = base_env.data.xpos[1]
+            viewer.sync()
+            
+            if dones[0]:
+                obs = env.reset()
+                lstm_states = None
+                episode_start = True
+            
+            time.sleep(sleep_time)
+            
+    except KeyboardInterrupt:
+        print("\nStopped.")
+    finally:
+        viewer.close()
+        env.close()
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--env", type=str, default="Ant-v5", help="Gymnasium environment ID (e.g., Hopper-v5, Walker2d-v5)")
+    parser = argparse.ArgumentParser(description="Run trained locomotion models")
+    parser.add_argument("--env", type=str, default="Ant-v5", 
+                        help="Gymnasium environment ID")
     parser.add_argument("--algo", type=str, choices=["ppo", "sac", "rec_ppo"], default="ppo")
     parser.add_argument("--path", type=str, help="Path to the model zip file")
-    parser.add_argument("--directional", action="store_true", help="Whether the model was trained with directional controls")
-    parser.add_argument("--sleep", type=float, default=0.01, help="Time to sleep between steps (increase to slow down)")
-    parser.add_argument("--slope", type=float, default=0.0, help="Floor inclination in degrees")
+    parser.add_argument("--direction", type=str, default=None,
+                        choices=["forward", "backward", "left", "right"],
+                        help="Direction the model was trained for. If not set, uses standard model.")
+    parser.add_argument("--interactive", action="store_true",
+                        help="Interactive mode: switch between all directional policies with keyboard")
+    parser.add_argument("--sleep", type=float, default=0.01, 
+                        help="Time to sleep between steps")
+    parser.add_argument("--slope", type=float, default=0.0, 
+                        help="Floor inclination in degrees")
     args = parser.parse_args()
     
-    # Set default paths if not provided
     env_name_clean = args.env.replace("-v5", "").lower()
-    log_suffix = "_dir" if args.directional else ""
-    model_name = f"{args.algo}_{env_name_clean}{log_suffix}"
     
-    model_path = args.path if args.path else f"./models/{model_name}/{model_name}_final.zip"
-    
-    enjoy(args.algo, args.env, model_path, directional=args.directional, sleep_time=args.sleep, slope=args.slope)
+    if args.interactive:
+        # Load all directional models
+        from utils.directional_control import get_valid_directions
+        valid_dirs = get_valid_directions(args.env)
+        model_paths = {}
+        for direction in valid_dirs:
+            model_name = f"{args.algo}_{env_name_clean}_{direction}"
+            model_paths[direction] = f"./models/{model_name}/{model_name}_final.zip"
+        
+        enjoy_interactive(args.algo, args.env, model_paths, sleep_time=args.sleep, slope=args.slope)
+    else:
+        # Single model mode
+        if args.direction:
+            log_suffix = f"_{args.direction}"
+        else:
+            log_suffix = ""
+        
+        model_name = f"{args.algo}_{env_name_clean}{log_suffix}"
+        model_path = args.path if args.path else f"./models/{model_name}/{model_name}_final.zip"
+        
+        enjoy(args.algo, args.env, model_path, direction=args.direction, sleep_time=args.sleep, slope=args.slope)

@@ -1,20 +1,31 @@
 import gymnasium as gym
 from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import CheckpointCallback
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
 import os
 import glob
 import argparse
+from utils.directional_control import wrap_directional_policy, get_valid_directions
 from utils.domain_randomization import wrap_env
-from utils.directional_control import wrap_directional
 from utils.terrain import TerrainCurriculumWrapper
 
-def make_env(env_id, directional=False, terrain_curriculum=False, total_timesteps=1000000):
+def make_env(env_id, direction=None, terrain_curriculum=False, total_timesteps=1000000):
+    """
+    Factory function to create environment instances.
+    
+    Args:
+        env_id: Gymnasium environment ID
+        direction: If specified, use directional policy wrapper for this direction.
+                   If None, use standard environment with default reward.
+        terrain_curriculum: Enable terrain curriculum learning
+        total_timesteps: Total training timesteps (for curriculum scheduling)
+    """
     def _init():
-        if directional:
-            from utils.directional_control import wrap_directional
-            env = wrap_directional(env_id)
+        if direction:
+            # Use direction-specific policy wrapper
+            env = wrap_directional_policy(env_id, direction=direction)
         else:
-            from utils.domain_randomization import wrap_env
+            # Standard environment with domain randomization
             env = wrap_env(env_id)
             
         if terrain_curriculum:
@@ -22,16 +33,37 @@ def make_env(env_id, directional=False, terrain_curriculum=False, total_timestep
         return env
     return _init
 
-def train(env_id="Ant-v5", directional=False, terrain_curriculum=False, n_envs=4, total_timesteps=10000000):
+def train(env_id="Ant-v5", direction=None, terrain_curriculum=False, n_envs=4, total_timesteps=10000000):
+    """
+    Train a SAC agent.
+    
+    Args:
+        env_id: Gymnasium environment ID (e.g., "Walker2d-v5", "Ant-v5")
+        direction: Direction for policy training. Options:
+                   - None: Standard forward-walking reward
+                   - "forward", "backward": Valid for all environments
+                   - "left", "right": Only valid for 3D environments (Ant)
+        terrain_curriculum: Enable terrain inclination curriculum
+        n_envs: Number of parallel environments
+        total_timesteps: Total training timesteps
+    """
+    # Validate direction if specified
+    if direction:
+        valid_dirs = get_valid_directions(env_id)
+        if direction not in valid_dirs:
+            raise ValueError(f"Invalid direction '{direction}' for {env_id}. Valid: {valid_dirs}")
+    
     # Create environment
-    from stable_baselines3.common.vec_env import SubprocVecEnv, VecNormalize
-    env = SubprocVecEnv([make_env(env_id, directional, terrain_curriculum, total_timesteps) for _ in range(n_envs)])
+    env = SubprocVecEnv([make_env(env_id, direction, terrain_curriculum, total_timesteps) for _ in range(n_envs)])
     env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.)
     
     env_name_clean = env_id.replace("-v5", "").lower()
     log_suffix = ""
-    if directional: log_suffix += "_dir"
-    if terrain_curriculum: log_suffix += "_terrain"
+    if direction: 
+        log_suffix += f"_{direction}"
+    if terrain_curriculum: 
+        log_suffix += "_terrain"
+    
     # Directory to save logs and models
     log_dir = f"./logs/sac_{env_name_clean}{log_suffix}/"
     model_dir = f"./models/sac_{env_name_clean}{log_suffix}/"
@@ -51,6 +83,10 @@ def train(env_id="Ant-v5", directional=False, terrain_curriculum=False, n_envs=4
         reset_num_timesteps = False
     else:
         print(f"Starting training {env_id} from scratch...")
+        if direction:
+            print(f"  Direction: {direction}")
+        else:
+            print(f"  Mode: Standard forward reward")
         model = SAC(
             "MlpPolicy",
             env,
@@ -87,7 +123,6 @@ def train(env_id="Ant-v5", directional=False, terrain_curriculum=False, n_envs=4
 
     # Start training
     print(f"Starting training on {env_id} with SAC...")
-    # total_timesteps defined above
     model.learn(
         total_timesteps=total_timesteps,
         callback=callback,
@@ -102,11 +137,62 @@ def train(env_id="Ant-v5", directional=False, terrain_curriculum=False, n_envs=4
 
     env.close()
 
+
+def train_all_directions(env_id="Walker2d-v5", terrain_curriculum=False, n_envs=4, total_timesteps=10000000):
+    """
+    Train separate policies for all valid directions.
+    
+    For 2D robots (Walker2d, Hopper): trains forward and backward
+    For 3D robots (Ant): trains forward, backward, left, and right
+    """
+    directions = get_valid_directions(env_id)
+    print(f"Training {len(directions)} directional policies for {env_id}: {directions}")
+    
+    for direction in directions:
+        print(f"\n{'='*60}")
+        print(f"Training {direction.upper()} policy with SAC")
+        print(f"{'='*60}\n")
+        train(
+            env_id=env_id,
+            direction=direction,
+            terrain_curriculum=terrain_curriculum,
+            n_envs=n_envs,
+            total_timesteps=total_timesteps
+        )
+    
+    print(f"\nAll {len(directions)} directional policies trained successfully!")
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--env", type=str, default="Ant-v5", help="Gymnasium environment ID")
-    parser.add_argument("--directional", action="store_true", help="Train for WASD-style directional control")
-    parser.add_argument("--terrain", action="store_true", help="Enable progressive terrain inclination curriculum")
-    parser.add_argument("--timesteps", type=int, default=10000000, help="Total training timesteps")
+    parser = argparse.ArgumentParser(description="Train SAC agent for locomotion")
+    parser.add_argument("--env", type=str, default="Ant-v5", 
+                        help="Gymnasium environment ID (e.g., Hopper-v5, Walker2d-v5, Ant-v5)")
+    parser.add_argument("--direction", type=str, default=None,
+                        choices=["forward", "backward", "left", "right"],
+                        help="Train policy for specific direction. If not specified, uses standard reward.")
+    parser.add_argument("--all-directions", action="store_true",
+                        help="Train separate policies for all valid directions")
+    parser.add_argument("--terrain", action="store_true", 
+                        help="Enable progressive terrain inclination curriculum")
+    parser.add_argument("--timesteps", type=int, default=10000000, 
+                        help="Total training timesteps")
+    parser.add_argument("--n-envs", type=int, default=4,
+                        help="Number of parallel environments")
+    
     args = parser.parse_args()
-    train(env_id=args.env, directional=args.directional, terrain_curriculum=args.terrain, total_timesteps=args.timesteps)
+    
+    if args.all_directions:
+        train_all_directions(
+            env_id=args.env, 
+            terrain_curriculum=args.terrain, 
+            n_envs=args.n_envs,
+            total_timesteps=args.timesteps
+        )
+    else:
+        train(
+            env_id=args.env, 
+            direction=args.direction,
+            terrain_curriculum=args.terrain,
+            n_envs=args.n_envs,
+            total_timesteps=args.timesteps
+        )
